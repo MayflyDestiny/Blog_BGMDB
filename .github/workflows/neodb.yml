@@ -5,7 +5,7 @@ permissions:
 
 on:
   schedule:
-    - cron: "0 17 * * *"          # 每天 UTC 17:00 执行
+    - cron: "0 17 * * *"
   workflow_dispatch:
 
 jobs:
@@ -19,7 +19,7 @@ jobs:
 
       - name: Install jq if missing
         run: |
-          if ! command -v jq &> /dev/null; then
+          if ! command -v jq &>/dev/null; then
             sudo apt-get update
             sudo apt-get install -y jq
           fi
@@ -49,7 +49,7 @@ jobs:
             for type in "${types[@]}"; do
               echo "Syncing ${category}_${type}..."
 
-              # 下载第一页，获取总页数/总数
+              # 去掉URL中的空格
               curl -s \
                 "https://neodb.social/api/me/shelf/${type}?category=${category}&page=1" \
                 -H "accept: application/json" \
@@ -72,8 +72,11 @@ jobs:
               outdir="tmp/${category}_${type}"
               mkdir -p "$outdir"
 
-              # 下载所有分页
-              for ((i=1; i<=pages; i++)); do
+              # 保存第一页
+              mv "tmp_${category}_${type}_1.json" "$outdir/1.json"
+
+              # 下载剩余页（从第2页开始）
+              for ((i=2; i<=pages; i++)); do
                 echo "Downloading page $i of ${category}_${type}"
                 curl -s \
                   "https://neodb.social/api/me/shelf/${type}?category=${category}&page=$i" \
@@ -82,15 +85,15 @@ jobs:
                   -o "$outdir/${i}.json"
               done
 
-              # 合并
+              # 合并所有分页
               jq -c -s '{
                 data: map(.data[]) | unique | sort_by(.created_time) | reverse,
                 pages: (map(.pages)[0]),
                 count: (map(.count)[0])
               }' "$outdir"/*.json > "neodb/${category}_${type}.json"
 
-              # 清理临时文件
-              rm -rf "tmp_${category}_${type}_1.json" "$outdir"
+              # 清理临时目录
+              rm -rf "$outdir"
             done
           done
 
