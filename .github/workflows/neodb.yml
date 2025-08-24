@@ -5,7 +5,7 @@ permissions:
 
 on:
   schedule:
-    - cron: "0 17 * * *"  # 每天 UTC+0 17点运行
+    - cron: "0 17 * * *"          # 每天 UTC 17:00 执行
   workflow_dispatch:
 
 jobs:
@@ -49,49 +49,51 @@ jobs:
             for type in "${types[@]}"; do
               echo "Syncing ${category}_${type}..."
 
-              # 下载第一页数据
-              curl -s -X GET "https://neodb.social/api/me/shelf/${type}?category=${category}&page=1" \
+              # 下载第一页，获取总页数/总数
+              curl -s \
+                "https://neodb.social/api/me/shelf/${type}?category=${category}&page=1" \
                 -H "accept: application/json" \
                 -H "Authorization: Bearer ${{ secrets.NEODB_ACCESS_TOKEN }}" \
-                -o "${category}_${type}1.json"
+                -o "tmp_${category}_${type}_1.json"
 
-              # 提取远程数据的 count 和 pages
-              remote_count=$(jq '.count // 0' "${category}_${type}1.json")
-              pages=$(jq '.pages // 0' "${category}_${type}1.json")
+              remote_count=$(jq '.count // 0' "tmp_${category}_${type}_1.json")
+              pages=$(jq '.pages // 0' "tmp_${category}_${type}_1.json")
 
               local_file="neodb/${category}_${type}.json"
-              local_count=$(jq '.count // 0' "$local_file" 2>/dev/null || echo 0)
+              local_count=$(jq '.count // 0' "$local_file")
 
               if [ "$remote_count" -eq "$local_count" ]; then
                 echo "No update for ${category}_${type}"
+                rm -f "tmp_${category}_${type}_1.json"
                 continue
               fi
 
               UPDATED=1
-              mkdir -p "tmp/neodb/${category}_${type}"
+              outdir="tmp/${category}_${type}"
+              mkdir -p "$outdir"
 
-              # 批量下载所有分页数据
+              # 下载所有分页
               for ((i=1; i<=pages; i++)); do
                 echo "Downloading page $i of ${category}_${type}"
-                curl -s -X GET "https://neodb.social/api/me/shelf/${type}?category=${category}&page=$i" \
+                curl -s \
+                  "https://neodb.social/api/me/shelf/${type}?category=${category}&page=$i" \
                   -H "accept: application/json" \
                   -H "Authorization: Bearer ${{ secrets.NEODB_ACCESS_TOKEN }}" \
-                  -o "tmp/neodb/${category}_${type}/${category}_${type}${i}.json"
+                  -o "$outdir/${i}.json"
               done
 
-              # 合并分页数据
+              # 合并
               jq -c -s '{
                 data: map(.data[]) | unique | sort_by(.created_time) | reverse,
                 pages: (map(.pages)[0]),
                 count: (map(.count)[0])
-              }' tmp/neodb/${category}_${type}/*.json > "${category}_${type}.json"
+              }' "$outdir"/*.json > "neodb/${category}_${type}.json"
 
-              # 保存到 neodb 目录
-              cp -f "${category}_${type}.json" "neodb/${category}_${type}.json"
+              # 清理临时文件
+              rm -rf "tmp_${category}_${type}_1.json" "$outdir"
             done
           done
 
-          # 如果无更新则跳过提交
           if [ "$UPDATED" -eq 0 ]; then
             echo "No updates. Exiting."
             exit 0
