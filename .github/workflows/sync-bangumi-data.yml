@@ -19,11 +19,20 @@ jobs:
         run: |
           cat > filter_r18.jq << 'EOF'
           map(select(
-            (.nsfw != true) and
-            (.tags // [] | map(.name // "") | 
+            # 检查 nsfw 字段
+            ((.nsfw // false) != true) and
+            # 检查 tags 数组中的标签名称
+            ((.tags // []) | 
+              map(select(type == "object") | .name // "") | 
+              map(select(type == "string")) |
               any(test("里番|18禁|18x|r18|成人|アダルト|エロ|h-game|eroge|adult|hentai|porn|xxx|sex"; "i")) | not
             ) and
-            ((.name // "") + (.name_cn // "") | 
+            # 检查条目名称
+            (((.name // "") | select(type == "string")) + ((.name_cn // "") | select(type == "string")) | 
+              test("里番|18禁|18x|r18|成人|アダルト|エロ|h-game|eroge|adult|hentai|porn|xxx|sex"; "i") | not
+            ) and
+            # 检查 subject 对象中的名称（如果存在）
+            (((.subject.name // "") | select(type == "string")) + ((.subject.name_cn // "") | select(type == "string")) | 
               test("里番|18禁|18x|r18|成人|アダルト|エロ|h-game|eroge|adult|hentai|porn|xxx|sex"; "i") | not
             )
           ))
@@ -105,7 +114,9 @@ jobs:
                 echo "Updating $collection_key..."
                 
                 # 创建临时文件
-                temp_file="tmp/bangumi/${collection_key}/data.json"
+                temp_dir="tmp/bangumi/${collection_key}"
+                mkdir -p "$temp_dir"
+                temp_file="$temp_dir/data.json"
                 echo '[]' > "$temp_file"
                 
                 if [ "$remote_total" -gt 0 ]; then
@@ -125,27 +136,86 @@ jobs:
                       break
                     fi
                     
-                    # 提取数据并追加到临时文件
-                    echo "$page_data" | jq -r '.data // []' > "tmp/bangumi/${collection_key}/page_${offset}.json"
+                    # 验证 API 响应格式
+                    if ! echo "$page_data" | jq -e '.data' > /dev/null 2>&1; then
+                      echo "Invalid API response format for $collection_key at offset $offset"
+                      echo "Response: $page_data"
+                      break
+                    fi
+                    
+                    # 提取并验证数据
+                    page_file="$temp_dir/page_${offset}.json"
+                    echo "$page_data" | jq -r '.data // []' > "$page_file"
+                    
+                    # 验证提取的数据格式
+                    if ! jq -e '. | type == "array"' "$page_file" > /dev/null 2>&1; then
+                      echo "Invalid data format in page $offset for $collection_key"
+                      rm -f "$page_file"
+                      break
+                    fi
                     
                     offset=$((offset + limit))
                     sleep 0.5  # 避免请求过于频繁
                   done
                   
                   # 合并所有页面数据
-                  if ls tmp/bangumi/${collection_key}/page_*.json 1> /dev/null 2>&1; then
-                    jq -s 'add' tmp/bangumi/${collection_key}/page_*.json > "$temp_file"
+                  if ls "$temp_dir"/page_*.json 1> /dev/null 2>&1; then
+                    echo "Merging page data for $collection_key..."
+                    jq -s 'add' "$temp_dir"/page_*.json > "$temp_file"
+                    
+                    # 验证合并后的数据
+                    if jq -e '. | type == "array"' "$temp_file" > /dev/null 2>&1; then
+                      echo "Successfully merged $(jq length "$temp_file") items for $collection_key"
+                    else
+                      echo "Failed to merge data for $collection_key"
+                      echo '[]' > "$temp_file"
+                    fi
+                  else
+                    echo "No page files found for $collection_key"
+                    echo '[]' > "$temp_file"
                   fi
                 fi
                 
                 # 应用 R18 过滤
-                if [ -f "$temp_file" ]; then
-                  jq -f filter_r18.jq "$temp_file" > "${local_file}.tmp"
-                  mv "${local_file}.tmp" "$local_file"
-                  UPDATED=1
-                  echo "Updated $collection_key with $(jq length "$local_file") items"
+                if [ -f "$temp_file" ] && jq -e '. | type == "array"' "$temp_file" > /dev/null 2>&1; then
+                  echo "Applying R18 filter to $collection_key..."
+                  
+                  # 先进行数据清理，确保所有字段都是预期的类型
+                  jq 'map({
+                    id: .id,
+                    type: .type,
+                    name: (.name // .subject.name // ""),
+                    name_cn: (.name_cn // .subject.name_cn // ""),
+                    image: (.image // .subject.image // ""),
+                    url: (.url // .subject.url // ""),
+                    short_summary: (.short_summary // .subject.short_summary // ""),
+                    tags: ((.tags // .subject.tags // []) | map(select(type == "object") | {name: (.name // ""), count: (.count // 0)})),
+                    score: (.score // 0),
+                    comment: (.comment // ""),
+                    private: (.private // false),
+                    nsfw: (.nsfw // .subject.nsfw // false),
+                    subject: (.subject // {}),
+                    updated_at: (.updated_at // ""),
+                    ep_status: (.ep_status // 0),
+                    vol_status: (.vol_status // 0)
+                  })' "$temp_file" > "${temp_file}.clean"
+                  
+                  # 应用 R18 过滤
+                  if jq -f filter_r18.jq "${temp_file}.clean" > "${local_file}.tmp" 2>/dev/null; then
+                    mv "${local_file}.tmp" "$local_file"
+                    UPDATED=1
+                    echo "Updated $collection_key with $(jq length "$local_file") items (filtered)"
+                  else
+                    echo "R18 filter failed for $collection_key, using unfiltered data"
+                    cp "${temp_file}.clean" "$local_file"
+                    UPDATED=1
+                    echo "Updated $collection_key with $(jq length "$local_file") items (unfiltered)"
+                  fi
+                  
+                  rm -f "${temp_file}.clean" "${local_file}.tmp"
                 else
-                  echo "No data file found for $collection_key"
+                  echo "Invalid or missing data file for $collection_key"
+                  echo '[]' > "$local_file"
                 fi
               else
                 echo "$collection_key is up to date"
@@ -173,7 +243,7 @@ jobs:
                 echo ',' >> "$summary_file"
               fi
               
-              if [ -f "$local_file" ]; then
+              if [ -f "$local_file" ] && jq -e '. | type == "array"' "$local_file" > /dev/null 2>&1; then
                 echo "  \"$collection_key\": $(cat "$local_file")" >> "$summary_file"
               else
                 echo "  \"$collection_key\": []" >> "$summary_file"
