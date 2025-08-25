@@ -1,201 +1,208 @@
 name: Sync Bangumi Data
 
-permissions:
-  contents: write
-
 on:
   schedule:
-    - cron: "0 2 * * *"  # 每天 UTC+0 2点运行
-  workflow_dispatch:
+    - cron: '0 2 * * *'  # 每天 UTC 2:00 (北京时间 10:00)
+  workflow_dispatch:  # 允许手动触发
 
 jobs:
-  bangumi_sync:
-    name: Sync Bangumi Data for All Types
+  sync:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install jq if missing
-        run: |
-          if ! command -v jq &> /dev/null; then
-            sudo apt-get update
-            sudo apt-get install -y jq
-          fi
-
-      - name: Ensure local files exist
-        run: |
-          types=("anime" "book" "music" "game" "real")
-          statuses=("1" "2" "3" "4" "5")
-          mkdir -p public/data/bangumi
-          
-          for type in "${types[@]}"; do
-            for status in "${statuses[@]}"; do
-              local_file="public/data/bangumi/${type}_${status}.json"
-              if [ ! -f "$local_file" ]; then
-                echo "Creating default JSON: $local_file"
-                echo '{"data": [], "total": 0, "last_updated": ""}' > "$local_file"
-              fi
-            done
-          done
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
 
       - name: Create R18 filter script
         run: |
           cat > filter_r18.jq << 'EOF'
-          # R18过滤函数
-          def is_r18_content:
-            # 检查nsfw字段
-            if .subject.nsfw == true then true
-            # 检查标签
-            elif (.subject.tags // []) | map(.name // "") | map(ascii_downcase) | 
-                 any(. as $tag | 
-                     ($tag | contains("里番")) or
-                     ($tag | contains("18禁")) or
-                     ($tag | contains("18x")) or
-                     ($tag | contains("r18")) or
-                     ($tag | contains("成人")) or
-                     ($tag | contains("アダルト")) or
-                     ($tag | contains("エロ")) or
-                     ($tag | contains("h-game")) or
-                     ($tag | contains("eroge"))
-                 ) then true
-            # 检查条目名称
-            elif ((.subject.name // "") + (.subject.name_cn // "")) | ascii_downcase | 
-                 (contains("里番") or contains("18禁") or contains("18x") or 
-                  contains("r18") or contains("成人") or contains("アダルト") or 
-                  contains("エロ") or contains("h-game") or contains("eroge")) then true
-            else false
-            end;
-          
-          # 主过滤逻辑
-          {
-            data: map(.data[]?) | map(select(is_r18_content | not)) | unique_by(.subject_id) | sort_by(.updated_at) | reverse,
-            total: (map(.data[]?) | map(select(is_r18_content | not)) | unique_by(.subject_id) | length),
-            last_updated: now | strftime("%Y-%m-%d %H:%M:%S")
-          }
+          map(select(
+            (.nsfw != true) and
+            (.tags // [] | map(.name // "") | 
+              any(test("里番|18禁|18x|r18|成人|アダルト|エロ|h-game|eroge|adult|hentai|porn|xxx|sex"; "i")) | not
+            ) and
+            ((.name // "") + (.name_cn // "") | 
+              test("里番|18禁|18x|r18|成人|アダルト|エロ|h-game|eroge|adult|hentai|porn|xxx|sex"; "i") | not
+            )
+          ))
           EOF
 
-      - name: Sync all type/status combinations
+      - name: Create directories
         run: |
-          # 类型映射：API类型ID -> 文件名
-          declare -A type_mapping=(["2"]="anime" ["1"]="book" ["3"]="music" ["4"]="game" ["6"]="real")
-          # 状态映射：1=想看 2=看过 3=在看 4=搁置 5=抛弃
-          statuses=("1" "2" "3" "4" "5")
+          mkdir -p public/data/bangumi
+          mkdir -p tmp/bangumi
+
+      - name: Sync Bangumi data
+        env:
+          BANGUMI_USER_ID: ${{ secrets.BANGUMI_USER_ID }}
+          BANGUMI_TOKEN: ${{ secrets.BANGUMI_TOKEN }}
+        run: |
           UPDATED=0
           
-          for api_type in "${!type_mapping[@]}"; do
-            file_type="${type_mapping[$api_type]}"
-            echo "Processing type: $file_type (API type: $api_type)"
+          # 定义所有类型和状态的组合
+          declare -A TYPE_MAP=(
+            ["book"]="1"
+            ["anime"]="2" 
+            ["music"]="3"
+            ["game"]="4"
+            ["real"]="6"
+          )
+          
+          declare -A STATUS_MAP=(
+            ["wish"]="1"
+            ["collect"]="2"
+            ["do"]="3"
+            ["on_hold"]="4"
+            ["dropped"]="5"
+          )
+          
+          # 为每个类型创建目录
+          for type_name in "${!TYPE_MAP[@]}"; do
+            mkdir -p "tmp/bangumi/${type_name}"
+            for status_name in "${!STATUS_MAP[@]}"; do
+              mkdir -p "tmp/bangumi/${type_name}_${STATUS_MAP[$status_name]}"
+            done
+          done
+          
+          # 同步每个类型和状态的组合
+          for type_name in "${!TYPE_MAP[@]}"; do
+            type_id="${TYPE_MAP[$type_name]}"
+            echo "Processing type: $type_name (API type: $type_id)"
             
-            for status in "${statuses[@]}"; do
-              echo "Syncing ${file_type}_${status}..."
+            for status_name in "${!STATUS_MAP[@]}"; do
+              status_id="${STATUS_MAP[$status_name]}"
+              collection_key="${type_name}_${status_id}"
               
-              # 下载第一页数据检查是否有更新
-              curl -s -X GET "https://api.bgm.tv/v0/users/${{ secrets.BANGUMI_USER_ID }}/collections?subject_type=${api_type}&type=${status}&limit=50&offset=0" \
-                -H "accept: application/json" \
-                -H "Authorization: Bearer ${{ secrets.BANGUMI_TOKEN }}" \
-                -H "User-Agent: Fuwari-Bangumi-Sync/1.0" \
-                -o "${file_type}_${status}_page1.json"
+              echo "Syncing $collection_key..."
               
-              # 检查API响应是否有效
-              if ! jq empty "${file_type}_${status}_page1.json" 2>/dev/null; then
-                echo "Invalid JSON response for ${file_type}_${status}, skipping..."
+              # 获取远程数据总数
+              remote_response=$(curl -s "https://api.bgm.tv/v0/users/${BANGUMI_USER_ID}/collections?subject_type=${type_id}&type=${status_id}&limit=1" \
+                -H "Authorization: Bearer ${BANGUMI_TOKEN}" \
+                -H "User-Agent: Fuwari-Bangumi-Sync/1.0")
+              
+              if [ $? -ne 0 ] || [ -z "$remote_response" ]; then
+                echo "Failed to fetch data for $collection_key"
                 continue
               fi
               
-              # 获取远程数据总数（未过滤）
-              remote_total=$(jq '.total // 0' "${file_type}_${status}_page1.json")
+              remote_total=$(echo "$remote_response" | jq -r '.total // 0')
               
-              local_file="public/data/bangumi/${file_type}_${status}.json"
-              local_total=$(jq '.total // 0' "$local_file" 2>/dev/null || echo 0)
+              # 检查本地文件
+              local_file="public/data/bangumi/${collection_key}.json"
+              if [ -f "$local_file" ]; then
+                local_total=$(jq -r 'length' "$local_file")
+              else
+                local_total=0
+                echo '[]' > "$local_file"
+              fi
               
-              # 简单检查：如果远程总数没变化，可能不需要更新（但不绝对准确，因为可能有标签变化）
-              # 为了确保数据准确性，我们可以选择总是更新，或者添加更精确的检查逻辑
+              echo "Processing $collection_key: remote_total=$remote_total, local_total=$local_total"
               
-              echo "Processing ${file_type}_${status}: remote_total=$remote_total, local_total=$local_total"
-              UPDATED=1
-              
-              # 创建临时目录
-              mkdir -p "tmp/bangumi/${file_type}_${status}"
-              
-              # 计算需要获取的页数
-              pages=$(( (remote_total + 49) / 50 ))  # 向上取整
-              
-              # 批量下载所有分页数据
-              for ((i=0; i<pages; i++)); do
-                offset=$((i * 50))
-                page_num=$((i + 1))
-                echo "Downloading page $page_num of ${file_type}_${status} (offset: $offset)"
+              # 如果数量不同，则更新
+              if [ "$remote_total" -ne "$local_total" ] || [ "$remote_total" -gt 0 ]; then
+                echo "Updating $collection_key..."
                 
-                curl -s -X GET "https://api.bgm.tv/v0/users/${{ secrets.BANGUMI_USER_ID }}/collections?subject_type=${api_type}&type=${status}&limit=50&offset=${offset}" \
-                  -H "accept: application/json" \
-                  -H "Authorization: Bearer ${{ secrets.BANGUMI_TOKEN }}" \
-                  -H "User-Agent: Fuwari-Bangumi-Sync/1.0" \
-                  -o "tmp/bangumi/${file_type}_${status}/${file_type}_${status}_${page_num}.json"
+                # 创建临时文件
+                temp_file="tmp/bangumi/${collection_key}/data.json"
+                echo '[]' > "$temp_file"
                 
-                # 添加延迟避免API限制
-                sleep 0.2
-              done
-              
-              # 使用完整的R18过滤逻辑合并分页数据
-              jq -c -s -f filter_r18.jq tmp/bangumi/${file_type}_${status}/*.json > "${file_type}_${status}.json"
-              
-              # 保存到目标目录
-              cp -f "${file_type}_${status}.json" "public/data/bangumi/${file_type}_${status}.json"
-              
-              filtered_total=$(jq '.total' "${file_type}_${status}.json")
-              echo "Completed ${file_type}_${status}: $filtered_total items (filtered from $remote_total)"
+                if [ "$remote_total" -gt 0 ]; then
+                  # 分页获取所有数据
+                  limit=50
+                  offset=0
+                  
+                  while [ $offset -lt $remote_total ]; do
+                    echo "Fetching $collection_key: offset=$offset, limit=$limit"
+                    
+                    page_data=$(curl -s "https://api.bgm.tv/v0/users/${BANGUMI_USER_ID}/collections?subject_type=${type_id}&type=${status_id}&limit=${limit}&offset=${offset}" \
+                      -H "Authorization: Bearer ${BANGUMI_TOKEN}" \
+                      -H "User-Agent: Fuwari-Bangumi-Sync/1.0")
+                    
+                    if [ $? -ne 0 ] || [ -z "$page_data" ]; then
+                      echo "Failed to fetch page data for $collection_key at offset $offset"
+                      break
+                    fi
+                    
+                    # 提取数据并追加到临时文件
+                    echo "$page_data" | jq -r '.data // []' > "tmp/bangumi/${collection_key}/page_${offset}.json"
+                    
+                    offset=$((offset + limit))
+                    sleep 0.5  # 避免请求过于频繁
+                  done
+                  
+                  # 合并所有页面数据
+                  if ls tmp/bangumi/${collection_key}/page_*.json 1> /dev/null 2>&1; then
+                    jq -s 'add' tmp/bangumi/${collection_key}/page_*.json > "$temp_file"
+                  fi
+                fi
+                
+                # 应用 R18 过滤
+                if [ -f "$temp_file" ]; then
+                  jq -f filter_r18.jq "$temp_file" > "${local_file}.tmp"
+                  mv "${local_file}.tmp" "$local_file"
+                  UPDATED=1
+                  echo "Updated $collection_key with $(jq length "$local_file") items"
+                else
+                  echo "No data file found for $collection_key"
+                fi
+              else
+                echo "$collection_key is up to date"
+              fi
             done
           done
           
           # 生成汇总数据
-          if [ "$UPDATED" -eq 1 ]; then
-            echo "Generating summary data..."
-            
-            # 创建类型汇总
-            declare -A type_names=(["anime"]="动画" ["book"]="书籍" ["music"]="音乐" ["game"]="游戏" ["real"]="三次元")
-            declare -A status_names=(["1"]="想看" ["2"]="看过" ["3"]="在看" ["4"]="搁置" ["5"]="抛弃")
-            
-            summary_data='{}'
-            
-            for type in "anime" "book" "music" "game" "real"; do
-              type_total=0
-              collections='{}'
-              
-              for status in "1" "2" "3" "4" "5"; do
-                file_path="public/data/bangumi/${type}_${status}.json"
-                if [ -f "$file_path" ]; then
-                  status_total=$(jq '.total' "$file_path")
-                  type_total=$((type_total + status_total))
-                  
-                  collections=$(echo "$collections" | jq --arg status "$status" --arg name "${status_names[$status]}" --argjson total "$status_total" '.
-                    | .[$status] = {"name": $name, "total": $total}')
-                fi
-              done
-              
-              summary_data=$(echo "$summary_data" | jq --arg type "$type" --arg name "${type_names[$type]}" --argjson total "$type_total" --argjson collections "$collections" '.
-                | .[$type] = {"name": $name, "total": $total, "collections": $collections}')
-            done
-            
-            # 添加元数据
-            metadata=$(echo '{}' | jq --arg updated "$(date -u +"%Y-%m-%d %H:%M:%S UTC")" '{
-              last_updated: $updated,
-              data: $summary_data
-            }' --argjson summary_data "$summary_data")
-            
-            echo "$metadata" > "public/data/bangumi/summary.json"
-            echo "Summary generated with $(echo "$summary_data" | jq 'keys | length') types"
-          fi
+          echo "Generating summary..."
+          summary_file="public/data/bangumi/summary.json"
           
-          # 如果无更新则跳过提交
-          if [ "$UPDATED" -eq 0 ]; then
-            echo "No updates. Exiting."
-            exit 0
-          fi
+          # 创建汇总 JSON
+          echo '{' > "$summary_file"
+          first=true
+          
+          for type_name in "${!TYPE_MAP[@]}"; do
+            for status_name in "${!STATUS_MAP[@]}"; do
+              status_id="${STATUS_MAP[$status_name]}"
+              collection_key="${type_name}_${status_id}"
+              local_file="public/data/bangumi/${collection_key}.json"
+              
+              if [ "$first" = true ]; then
+                first=false
+              else
+                echo ',' >> "$summary_file"
+              fi
+              
+              if [ -f "$local_file" ]; then
+                echo "  \"$collection_key\": $(cat "$local_file")" >> "$summary_file"
+              else
+                echo "  \"$collection_key\": []" >> "$summary_file"
+              fi
+            done
+          done
+          
+          echo '}' >> "$summary_file"
+          
+          # 清理临时文件
+          rm -rf tmp/bangumi
+          rm -f filter_r18.jq
+          
+          echo "UPDATED=$UPDATED" >> $GITHUB_ENV
 
-      - name: Commit and Push
-        uses: EndBug/add-and-commit@v9
-        with:
-          message: 'chore: update Bangumi collection data (R18 filtered)'
-          add: './public/data/bangumi'
+      - name: Commit and push if changed
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          
+          if [ "$UPDATED" -eq 1 ]; then
+            git add public/data/bangumi/
+            if git diff --staged --quiet; then
+              echo "No changes to commit"
+            else
+              git commit -m "Update Bangumi data - $(date +'%Y-%m-%d %H:%M:%S')"
+              git push
+              echo "Successfully updated Bangumi data"
+            fi
+          else
+            echo "No updates needed"
+          fi
