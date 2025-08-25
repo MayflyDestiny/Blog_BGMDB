@@ -1,0 +1,170 @@
+name: Sync Bangumi Data
+
+permissions:
+  contents: write
+
+on:
+  schedule:
+    - cron: "0 2 * * *"  # 每天 UTC+0 2点运行
+  workflow_dispatch:
+
+jobs:
+  bangumi_sync:
+    name: Sync Bangumi Data for All Types
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install jq if missing
+        run: |
+          if ! command -v jq &> /dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y jq
+          fi
+
+      - name: Ensure local files exist
+        run: |
+          types=("anime" "book" "music" "game" "real")
+          statuses=("1" "2" "3" "4" "5")
+          mkdir -p public/data/bangumi
+          
+          for type in "${types[@]}"; do
+            for status in "${statuses[@]}"; do
+              local_file="public/data/bangumi/${type}_${status}.json"
+              if [ ! -f "$local_file" ]; then
+                echo "Creating default JSON: $local_file"
+                echo '{"data": [], "total": 0, "last_updated": ""}' > "$local_file"
+              fi
+            done
+          done
+
+      - name: Sync all type/status combinations
+        run: |
+          # 类型映射：API类型ID -> 文件名
+          declare -A type_mapping=(["2"]="anime" ["1"]="book" ["3"]="music" ["4"]="game" ["6"]="real")
+          # 状态映射：1=想看 2=看过 3=在看 4=搁置 5=抛弃
+          statuses=("1" "2" "3" "4" "5")
+          UPDATED=0
+          
+          for api_type in "${!type_mapping[@]}"; do
+            file_type="${type_mapping[$api_type]}"
+            echo "Processing type: $file_type (API type: $api_type)"
+            
+            for status in "${statuses[@]}"; do
+              echo "Syncing ${file_type}_${status}..."
+              
+              # 下载第一页数据检查是否有更新
+              curl -s -X GET "https://api.bgm.tv/v0/users/${{ secrets.BANGUMI_USER_ID }}/collections?subject_type=${api_type}&type=${status}&limit=50&offset=0" \
+                -H "accept: application/json" \
+                -H "Authorization: Bearer ${{ secrets.BANGUMI_TOKEN }}" \
+                -H "User-Agent: Fuwari-Bangumi-Sync/1.0" \
+                -o "${file_type}_${status}_page1.json"
+              
+              # 检查API响应是否有效
+              if ! jq empty "${file_type}_${status}_page1.json" 2>/dev/null; then
+                echo "Invalid JSON response for ${file_type}_${status}, skipping..."
+                continue
+              fi
+              
+              # 获取远程数据总数
+              remote_total=$(jq '.total // 0' "${file_type}_${status}_page1.json")
+              
+              local_file="public/data/bangumi/${file_type}_${status}.json"
+              local_total=$(jq '.total // 0' "$local_file" 2>/dev/null || echo 0)
+              
+              if [ "$remote_total" -eq "$local_total" ]; then
+                echo "No update for ${file_type}_${status} (total: $remote_total)"
+                continue
+              fi
+              
+              echo "Update needed for ${file_type}_${status}: local=$local_total, remote=$remote_total"
+              UPDATED=1
+              
+              # 创建临时目录
+              mkdir -p "tmp/bangumi/${file_type}_${status}"
+              
+              # 计算需要获取的页数
+              pages=$(( (remote_total + 49) / 50 ))  # 向上取整
+              
+              # 批量下载所有分页数据
+              for ((i=0; i<pages; i++)); do
+                offset=$((i * 50))
+                page_num=$((i + 1))
+                echo "Downloading page $page_num of ${file_type}_${status} (offset: $offset)"
+                
+                curl -s -X GET "https://api.bgm.tv/v0/users/${{ secrets.BANGUMI_USER_ID }}/collections?subject_type=${api_type}&type=${status}&limit=50&offset=${offset}" \
+                  -H "accept: application/json" \
+                  -H "Authorization: Bearer ${{ secrets.BANGUMI_TOKEN }}" \
+                  -H "User-Agent: Fuwari-Bangumi-Sync/1.0" \
+                  -o "tmp/bangumi/${file_type}_${status}/${file_type}_${status}_${page_num}.json"
+                
+                # 添加延迟避免API限制
+                sleep 0.2
+              done
+              
+              # 合并分页数据并过滤R18内容
+              jq -c -s '{
+                data: map(.data[]?) | map(select(.subject.nsfw != true)) | unique_by(.subject_id) | sort_by(.updated_at) | reverse,
+                total: (map(.data[]?) | map(select(.subject.nsfw != true)) | unique_by(.subject_id) | length),
+                last_updated: now | strftime("%Y-%m-%d %H:%M:%S")
+              }' tmp/bangumi/${file_type}_${status}/*.json > "${file_type}_${status}.json"
+              
+              # 保存到目标目录
+              cp -f "${file_type}_${status}.json" "public/data/bangumi/${file_type}_${status}.json"
+              
+              echo "Completed ${file_type}_${status}: $(jq '.total' "${file_type}_${status}.json") items"
+            done
+          done
+          
+          # 生成汇总数据
+          if [ "$UPDATED" -eq 1 ]; then
+            echo "Generating summary data..."
+            
+            # 创建类型汇总
+            declare -A type_names=(["anime"]="动画" ["book"]="书籍" ["music"]="音乐" ["game"]="游戏" ["real"]="三次元")
+            declare -A status_names=(["1"]="想看" ["2"]="看过" ["3"]="在看" ["4"]="搁置" ["5"]="抛弃")
+            
+            summary_data='{}'
+            
+            for type in "anime" "book" "music" "game" "real"; do
+              type_total=0
+              collections='{}'
+              
+              for status in "1" "2" "3" "4" "5"; do
+                file_path="public/data/bangumi/${type}_${status}.json"
+                if [ -f "$file_path" ]; then
+                  status_total=$(jq '.total' "$file_path")
+                  type_total=$((type_total + status_total))
+                  
+                  collections=$(echo "$collections" | jq --arg status "$status" --arg name "${status_names[$status]}" --argjson total "$status_total" '.
+                    | .[$status] = {"name": $name, "total": $total}')
+                fi
+              done
+              
+              summary_data=$(echo "$summary_data" | jq --arg type "$type" --arg name "${type_names[$type]}" --argjson total "$type_total" --argjson collections "$collections" '.
+                | .[$type] = {"name": $name, "total": $total, "collections": $collections}')
+            done
+            
+            # 添加元数据
+            metadata=$(echo '{}' | jq --arg updated "$(date -u +"%Y-%m-%d %H:%M:%S UTC")" '{
+              last_updated: $updated,
+              data: $summary_data
+            }' --argjson summary_data "$summary_data")
+            
+            echo "$metadata" > "public/data/bangumi/summary.json"
+            echo "Summary generated with $(echo "$summary_data" | jq 'keys | length') types"
+          fi
+          
+          # 如果无更新则跳过提交
+          if [ "$UPDATED" -eq 0 ]; then
+            echo "No updates. Exiting."
+            exit 0
+          fi
+
+      - name: Commit and Push
+        uses: EndBug/add-and-commit@v9
+        with:
+          message: 'chore: update Bangumi collection data'
+          add: './public/data/bangumi'
