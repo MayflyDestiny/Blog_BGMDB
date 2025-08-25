@@ -1,0 +1,39 @@
+name: Update Bangumi Data
+
+on:
+  schedule:
+    # 每天凌晨2点更新数据
+    - cron: '0 2 * * *'
+  workflow_dispatch: # 允许手动触发
+  push:
+    paths:
+      - '.github/workflows/update-bangumi-data.yml'
+
+jobs:
+  update-data:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          
+      - name: Fetch Bangumi Data
+        env:
+          BANGUMI_UID: ${{ secrets.BANGUMI_UID }}
+          BANGUMI_TOKEN: ${{ secrets.BANGUMI_TOKEN }}
+        run: |
+          node scripts/fetch-bangumi-data.js
+          
+      - name: Commit and push data
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add public/data/bangumi-data.json
+          git diff --staged --quiet || git commit -m "Update bangumi data $(date +'%Y-%m-%d %H:%M:%S')"
+          git push
