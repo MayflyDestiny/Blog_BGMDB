@@ -171,7 +171,7 @@ jobs:
               mv "summary_temp.json" "summary_base.json"
             done
             
-            jq --argjson total "$total_items" '.totalItems = $total' "summary_base.json" > "public/data/bangumi/summary.json"
+            jq --argjson total "$total_items" '.totalItems = $total' "summary_base.json" > "data/bangumi/summary.json"
             
             echo "Summary generated with ${total_items} total items"
           fi
