@@ -1,0 +1,96 @@
+{
+  "data": [
+    {
+      "updated_at": "2025-02-09T13:47:44+08:00",
+      "comment": null,
+      "tags": [
+        "CLANNAD",
+        "我眼里怎么突然进沙子了",
+        "神曲",
+        "BGM",
+        "治愈"
+      ],
+      "subject": {
+        "date": "2004-08-13",
+        "images": {
+          "small": "https://lain.bgm.tv/r/200/pic/cover/l/77/50/616_LZ4uz.jpg",
+          "grid": "https://lain.bgm.tv/r/100/pic/cover/l/77/50/616_LZ4uz.jpg",
+          "large": "https://lain.bgm.tv/pic/cover/l/77/50/616_LZ4uz.jpg",
+          "medium": "https://lain.bgm.tv/r/800/pic/cover/l/77/50/616_LZ4uz.jpg",
+          "common": "https://lain.bgm.tv/r/400/pic/cover/l/77/50/616_LZ4uz.jpg"
+        },
+        "name": "CLANNAD Original SoundTrack",
+        "name_cn": "",
+        "short_summary": "ゲーム中に使用されたＢＧＭ全45曲と、新たに[メグメル　-cockool mix-]フルコーラスバージョン、未使用曲2曲をコレクションディスク内に収録。\r\n\r\n※一般版では、DISC3の表記が、「DISC3 - collection dis",
+        "tags": [
+          {
+            "name": "CLANNAD",
+            "count": 962,
+            "total_cont": 0
+          },
+          {
+            "name": "麻枝准",
+            "count": 747,
+            "total_cont": 0
+          },
+          {
+            "name": "key",
+            "count": 736,
+            "total_cont": 0
+          },
+          {
+            "name": "OST",
+            "count": 599,
+            "total_cont": 0
+          },
+          {
+            "name": "折户伸治",
+            "count": 445,
+            "total_cont": 0
+          },
+          {
+            "name": "治愈",
+            "count": 340,
+            "total_cont": 0
+          },
+          {
+            "name": "神曲",
+            "count": 253,
+            "total_cont": 0
+          },
+          {
+            "name": "我眼里怎么突然进沙子了",
+            "count": 221,
+            "total_cont": 0
+          },
+          {
+            "name": "BGM",
+            "count": 143,
+            "total_cont": 0
+          },
+          {
+            "name": "2004",
+            "count": 105,
+            "total_cont": 0
+          }
+        ],
+        "score": 9.2,
+        "type": 3,
+        "id": 616,
+        "eps": 0,
+        "volumes": 0,
+        "collection_total": 3995,
+        "rank": 3
+      },
+      "subject_id": 616,
+      "vol_status": 0,
+      "ep_status": 0,
+      "subject_type": 3,
+      "type": 1,
+      "rate": 8,
+      "private": true
+    }
+  ],
+  "total": 1,
+  "lastUpdated": "2025-08-25 04:36:10"
+}

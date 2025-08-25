@@ -1,0 +1,41 @@
+{
+  "data": {
+    "anime": {
+      "watching": 2,
+      "wish": 4,
+      "collect": 254,
+      "on_hold": 29,
+      "dropped": 1
+    },
+    "music": {
+      "watching": 0,
+      "wish": 1,
+      "collect": 3,
+      "on_hold": 0,
+      "dropped": 0
+    },
+    "game": {
+      "watching": 0,
+      "wish": 0,
+      "collect": 0,
+      "on_hold": 0,
+      "dropped": 0
+    },
+    "book": {
+      "watching": 1,
+      "wish": 0,
+      "collect": 0,
+      "on_hold": 0,
+      "dropped": 0
+    },
+    "real": {
+      "watching": 0,
+      "wish": 0,
+      "collect": 7,
+      "on_hold": 0,
+      "dropped": 0
+    }
+  },
+  "lastUpdated": "2025-08-25 04:36:19",
+  "totalItems": 302
+}

@@ -1,0 +1,100 @@
+{
+  "data": [
+    {
+      "updated_at": "2025-02-09T12:47:27+08:00",
+      "comment": null,
+      "tags": [
+        "漫画",
+        "原创",
+        "连载中",
+        "恋爱",
+        "搞笑",
+        "沙雕",
+        "后宫",
+        "校园",
+        "日本"
+      ],
+      "subject": {
+        "date": "2020-04-17",
+        "images": {
+          "small": "https://lain.bgm.tv/r/200/pic/cover/l/56/0e/296466_be3ke.jpg",
+          "grid": "https://lain.bgm.tv/r/100/pic/cover/l/56/0e/296466_be3ke.jpg",
+          "large": "https://lain.bgm.tv/pic/cover/l/56/0e/296466_be3ke.jpg",
+          "medium": "https://lain.bgm.tv/r/800/pic/cover/l/56/0e/296466_be3ke.jpg",
+          "common": "https://lain.bgm.tv/r/400/pic/cover/l/56/0e/296466_be3ke.jpg"
+        },
+        "name": "君のことが大大大大大好きな100人の彼女",
+        "name_cn": "超超超超超喜欢你的100个女朋友",
+        "short_summary": "　　春天是离别与邂逅的季节、在中学毕业典礼上经历了第100次失恋的爱城恋太郎突然遇到了结缘与恋爱的神明。神明告诉恋太郎，他会在高中邂逅100位命运之人！但是，命运之人如果无法与恋太郎修成正果的话就会死!? 知道了这个冲击性的事情后，恋太郎的",
+        "tags": [
+          {
+            "name": "漫画",
+            "count": 181,
+            "total_cont": 0
+          },
+          {
+            "name": "后宫",
+            "count": 174,
+            "total_cont": 0
+          },
+          {
+            "name": "搞笑",
+            "count": 150,
+            "total_cont": 0
+          },
+          {
+            "name": "恋爱",
+            "count": 129,
+            "total_cont": 0
+          },
+          {
+            "name": "校园",
+            "count": 64,
+            "total_cont": 0
+          },
+          {
+            "name": "集英社",
+            "count": 60,
+            "total_cont": 0
+          },
+          {
+            "name": "沙雕",
+            "count": 48,
+            "total_cont": 0
+          },
+          {
+            "name": "野澤ゆき子",
+            "count": 43,
+            "total_cont": 0
+          },
+          {
+            "name": "2019",
+            "count": 35,
+            "total_cont": 0
+          },
+          {
+            "name": "中村力斗",
+            "count": 22,
+            "total_cont": 0
+          }
+        ],
+        "score": 7.3,
+        "type": 1,
+        "id": 296466,
+        "eps": 0,
+        "volumes": 0,
+        "collection_total": 1153,
+        "rank": 3265
+      },
+      "subject_id": 296466,
+      "vol_status": 7,
+      "ep_status": 54,
+      "subject_type": 1,
+      "type": 3,
+      "rate": 8,
+      "private": true
+    }
+  ],
+  "total": 1,
+  "lastUpdated": "2025-08-25 04:36:15"
+}
