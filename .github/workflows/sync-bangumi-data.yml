@@ -28,18 +28,18 @@ jobs:
         run: |
           types=("anime" "music" "game" "book" "real")
           statuses=("watching" "wish" "collect" "on_hold" "dropped")
-          mkdir -p public/data/bangumi
+          mkdir -p data/bangumi
           
           # 创建汇总文件
-          if [ ! -f "public/data/bangumi/summary.json" ]; then
+          if [ ! -f "data/bangumi/summary.json" ]; then
             echo 'Creating default summary.json'
-            echo '{"data": {}, "lastUpdated": "", "totalItems": 0}' > "public/data/bangumi/summary.json"
+            echo '{"data": {}, "lastUpdated": "", "totalItems": 0}' > "data/bangumi/summary.json"
           fi
           
           # 为每个类型和状态组合创建默认文件
           for type in "${types[@]}"; do
             for status in "${statuses[@]}"; do
-              local_file="public/data/bangumi/${type}_${status}.json"
+              local_file="data/bangumi/${type}_${status}.json"
               if [ ! -f "$local_file" ]; then
                 echo "Creating default JSON: $local_file"
                 echo '{"data": [], "total": 0, "lastUpdated": ""}' > "$local_file"
@@ -81,7 +81,7 @@ jobs:
               fi
               
               remote_total=$(jq '.total // 0' "${type}_${status}_check.json")
-              local_file="public/data/bangumi/${type}_${status}.json"
+              local_file="data/bangumi/${type}_${status}.json"
               local_total=$(jq '.total // 0' "$local_file" 2>/dev/null || echo 0)
               
               if [ "$remote_total" -eq "$local_total" ]; then
@@ -159,7 +159,7 @@ jobs:
             for type in "${types[@]}"; do
               type_data="{}"
               for status in "${statuses[@]}"; do
-                file="public/data/bangumi/${type}_${status}.json"
+                file="data/bangumi/${type}_${status}.json"
                 if [ -f "$file" ]; then
                   count=$(jq '.data | length' "$file")
                   total_items=$((total_items + count))
