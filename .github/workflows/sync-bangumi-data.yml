@@ -40,6 +40,42 @@ jobs:
             done
           done
 
+      - name: Create R18 filter script
+        run: |
+          cat > filter_r18.jq << 'EOF'
+          # R18过滤函数
+          def is_r18_content:
+            # 检查nsfw字段
+            if .subject.nsfw == true then true
+            # 检查标签
+            elif (.subject.tags // []) | map(.name // "") | map(ascii_downcase) | 
+                 any(. as $tag | 
+                     ($tag | contains("里番")) or
+                     ($tag | contains("18禁")) or
+                     ($tag | contains("18x")) or
+                     ($tag | contains("r18")) or
+                     ($tag | contains("成人")) or
+                     ($tag | contains("アダルト")) or
+                     ($tag | contains("エロ")) or
+                     ($tag | contains("h-game")) or
+                     ($tag | contains("eroge"))
+                 ) then true
+            # 检查条目名称
+            elif ((.subject.name // "") + (.subject.name_cn // "")) | ascii_downcase | 
+                 (contains("里番") or contains("18禁") or contains("18x") or 
+                  contains("r18") or contains("成人") or contains("アダルト") or 
+                  contains("エロ") or contains("h-game") or contains("eroge")) then true
+            else false
+            end;
+          
+          # 主过滤逻辑
+          {
+            data: map(.data[]?) | map(select(is_r18_content | not)) | unique_by(.subject_id) | sort_by(.updated_at) | reverse,
+            total: (map(.data[]?) | map(select(is_r18_content | not)) | unique_by(.subject_id) | length),
+            last_updated: now | strftime("%Y-%m-%d %H:%M:%S")
+          }
+          EOF
+
       - name: Sync all type/status combinations
         run: |
           # 类型映射：API类型ID -> 文件名
@@ -68,18 +104,16 @@ jobs:
                 continue
               fi
               
-              # 获取远程数据总数
+              # 获取远程数据总数（未过滤）
               remote_total=$(jq '.total // 0' "${file_type}_${status}_page1.json")
               
               local_file="public/data/bangumi/${file_type}_${status}.json"
               local_total=$(jq '.total // 0' "$local_file" 2>/dev/null || echo 0)
               
-              if [ "$remote_total" -eq "$local_total" ]; then
-                echo "No update for ${file_type}_${status} (total: $remote_total)"
-                continue
-              fi
+              # 简单检查：如果远程总数没变化，可能不需要更新（但不绝对准确，因为可能有标签变化）
+              # 为了确保数据准确性，我们可以选择总是更新，或者添加更精确的检查逻辑
               
-              echo "Update needed for ${file_type}_${status}: local=$local_total, remote=$remote_total"
+              echo "Processing ${file_type}_${status}: remote_total=$remote_total, local_total=$local_total"
               UPDATED=1
               
               # 创建临时目录
@@ -104,17 +138,14 @@ jobs:
                 sleep 0.2
               done
               
-              # 合并分页数据并过滤R18内容
-              jq -c -s '{
-                data: map(.data[]?) | map(select(.subject.nsfw != true)) | unique_by(.subject_id) | sort_by(.updated_at) | reverse,
-                total: (map(.data[]?) | map(select(.subject.nsfw != true)) | unique_by(.subject_id) | length),
-                last_updated: now | strftime("%Y-%m-%d %H:%M:%S")
-              }' tmp/bangumi/${file_type}_${status}/*.json > "${file_type}_${status}.json"
+              # 使用完整的R18过滤逻辑合并分页数据
+              jq -c -s -f filter_r18.jq tmp/bangumi/${file_type}_${status}/*.json > "${file_type}_${status}.json"
               
               # 保存到目标目录
               cp -f "${file_type}_${status}.json" "public/data/bangumi/${file_type}_${status}.json"
               
-              echo "Completed ${file_type}_${status}: $(jq '.total' "${file_type}_${status}.json") items"
+              filtered_total=$(jq '.total' "${file_type}_${status}.json")
+              echo "Completed ${file_type}_${status}: $filtered_total items (filtered from $remote_total)"
             done
           done
           
@@ -166,5 +197,5 @@ jobs:
       - name: Commit and Push
         uses: EndBug/add-and-commit@v9
         with:
-          message: 'chore: update Bangumi collection data'
+          message: 'chore: update Bangumi collection data (R18 filtered)'
           add: './public/data/bangumi'
