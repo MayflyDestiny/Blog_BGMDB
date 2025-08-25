@@ -189,4 +189,4 @@ jobs:
         uses: EndBug/add-and-commit@v9
         with:
           message: 'chore: update Bangumi data (all types and statuses)'
-          add: './public/data/bangumi'
+          add: './data/bangumi'
